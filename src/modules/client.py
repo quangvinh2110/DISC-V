@@ -8,7 +8,10 @@ from abc import ABC, abstractmethod
 
 from tqdm.asyncio import tqdm
 
-from ..utils.io import batch_iter
+
+def batch_iter(data: List, batch_size: int):
+    for i in range(0, len(data), batch_size):
+        yield data[i : i + batch_size]
 
 
 class Client(ABC):
@@ -48,16 +51,17 @@ class Client(ABC):
         """
         data = self._format_request_payload(messages, generation_kwargs)
         try:
+            request_timeout = aiohttp.ClientTimeout(total=600000)
             async with session.post(
-                self.endpoint, headers=self.headers, json=data, timeout=600000
+                self.endpoint, headers=self.headers, json=data, timeout=request_timeout
             ) as resp:
                 try:
-                    resp = await resp.json()
-                    return [answer["message"]["content"] for answer in resp["choices"]]
-                except:
-                    resp = await resp.text()
-                    return [resp]
-        except:
+                    payload = await resp.json()
+                    return [answer["message"]["content"] for answer in payload["choices"]]
+                except Exception:
+                    text_body = await resp.text()
+                    return [text_body]
+        except Exception:
             return ["Failed: " + str(traceback.format_exc())]
 
     async def _agenerate(
@@ -108,14 +112,14 @@ class Client(ABC):
             "POST", self.endpoint, headers=self.headers, json=data, timeout=600000
         )
         try:
-            resp = resp.json()
-            return [answer["message"]["content"] for answer in resp["choices"]]
-        except:
+            payload = resp.json()
+            return [answer["message"]["content"] for answer in payload["choices"]]
+        except Exception:
             return ["Failed: " + str(traceback.format_exc())]
 
     def __call__(
         self,
-        batch_messages: Iterable[List[dict]],
+        batch_messages: List[List[dict]],
         run_async: bool = False,
         generation_kwargs: dict = {},
     ) -> List[List[str]]:
@@ -135,7 +139,7 @@ class Client(ABC):
                 results.extend(
                     asyncio.run(
                         self._agenerate(
-                            messages=mini_batch, generation_kwargs=generation_kwargs
+                            batch_messages=mini_batch, generation_kwargs=generation_kwargs
                         )
                     )
                 )
